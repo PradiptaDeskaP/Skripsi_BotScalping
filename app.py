@@ -572,35 +572,24 @@ def detailed_status():
 
 @app.errorhandler(404)
 def not_found(error):
-    logger.warning(f"404 Error: {request.url}")
     return jsonify({
         "status": "error",
-        "message": "Endpoint not found. Check / for available endpoints.",
-        "available_endpoints": [
-            "GET /",
-            "POST /webhook", 
-            "GET /test",
-            "GET /test/scalping",
-            "GET /health",
-            "GET /status"
-        ]
+        "message": "Endpoint not found"
     }), 404
 
-@app.errorhandler(405)
-def method_not_allowed(error):
-    logger.warning(f"405 Error: {request.method} {request.url}")
-    return jsonify({
-        "status": "error",
-        "message": f"Method {request.method} not allowed for this endpoint",
-        "allowed_methods": ["GET", "POST"]  # FIX: Hardcode allowed methods
-    }), 405
+# REMOVE THE PROBLEMATIC 405 HANDLER TEMPORARILY
+# @app.errorhandler(405)
+# def method_not_allowed(error):
+#     return jsonify({
+#         "status": "error", 
+#         "message": "Method not allowed"
+#     }), 405
 
 @app.errorhandler(500)
 def internal_server_error(error):
-    logger.error(f"500 Internal Server Error: {error}")
     return jsonify({
         "status": "error",
-        "message": "Internal server error. Check logs for details."
+        "message": "Internal server error"
     }), 500
 # =============================================
 # APPLICATION STARTUP - WITHOUT EMOJIS FOR WINDOWS
