@@ -333,80 +333,182 @@ def tradingview_webhook():
     try:
         # Log request details untuk audit
         client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
-        logger.info(f"Webhook request received from IP: {client_ip}")
-        logger.info(f"Request method: {request.method}")
-        logger.info(f"Request headers: {dict(request.headers)}")
+        logger.info(f"📨 WEBHOOK REQUEST FROM: {client_ip}")
+        logger.info(f"🔹 Method: {request.method}")
+        logger.info(f"🔹 Content-Type: {request.content_type}")
+        logger.info(f"🔹 Headers: {dict(request.headers)}")
         
-        # Get JSON data dari TradingView
-        data = request.get_json()
+        data = None
         
-        if not data:
-            # Coba get data sebagai form data juga
+        # Handle different content types
+        if request.content_type and 'application/json' in request.content_type:
+            # JSON content type
+            data = request.get_json()
+            logger.info("✅ Data received as application/json")
+            
+        elif request.content_type and 'text/plain' in request.content_type:
+            # TradingView usually sends text/plain with JSON inside
+            raw_data = request.get_data(as_text=True)
+            logger.info(f"📝 Raw text data: {raw_data}")
+            
+            if raw_data:
+                try:
+                    data = json.loads(raw_data)
+                    logger.info("✅ Successfully parsed text/plain as JSON")
+                except json.JSONDecodeError:
+                    # Jika bukan JSON, coba parse sebagai form data
+                    try:
+                        data = request.form.to_dict()
+                        logger.info("✅ Parsed as form data")
+                    except:
+                        data = {'raw_message': raw_data}
+                        logger.info("✅ Stored as raw message")
+        
+        elif request.form:
+            # Form data
             data = request.form.to_dict()
-            if data:
-                logger.info("Received data as form data")
-            else:
-                logger.warning("Empty JSON data received")
-                return jsonify({
-                    "status": "error",
-                    "message": "No JSON data received",
-                    "alert_id": None,
-                    "processing_time_ms": 0
-                }), 400
+            logger.info("✅ Data received as form-data")
+            
+        else:
+            # Try to get raw body and parse as JSON
+            raw_body = request.get_data(as_text=True)
+            logger.info(f"🔍 Raw request body: {raw_body}")
+            
+            if raw_body:
+                try:
+                    data = json.loads(raw_body)
+                    logger.info("✅ Successfully parsed raw body as JSON")
+                except:
+                    data = {'raw_message': raw_body}
+                    logger.info("✅ Stored raw body as message")
         
-        # Log raw data untuk debugging
-        logger.info(f"Raw alert data: {json.dumps(data, indent=2)}")
+        # Jika masih tidak ada data
+        if not data:
+            logger.error("❌ NO DATA RECEIVED")
+            return jsonify({
+                "status": "error",
+                "message": "No data received",
+                "content_type": request.content_type,
+                "supported_types": ["application/json", "text/plain", "form-data"]
+            }), 400
+        
+        logger.info(f"📊 Parsed data: {json.dumps(data, indent=2)}")
+        
+        # Handle case where data might be nested or have different structure
+        processed_data = data
+        
+        # Jika data adalah string dalam 'raw_message', coba parse ulang
+        if isinstance(processed_data, dict) and 'raw_message' in processed_data:
+            try:
+                raw_msg = processed_data['raw_message']
+                if raw_msg.startswith('{') and raw_msg.endswith('}'):
+                    processed_data = json.loads(raw_msg)
+                    logger.info("✅ Parsed raw_message as JSON")
+            except:
+                pass
         
         # Validasi data alert
-        alert_manager.validate_alert_data(data)
+        alert_manager.validate_alert_data(processed_data)
         
         # Format professional alert message
-        alert_message = alert_manager.format_professional_alert(data)
+        alert_message = alert_manager.format_professional_alert(processed_data)
+        logger.info(f"📋 Formatted alert message ready")
         
         # Kirim ke Telegram
+        logger.info("📤 Sending to Telegram...")
         success = alert_manager.send_telegram_alert(alert_message)
         
         # Calculate processing time
         processing_time = round((time.time() - start_time) * 1000, 2)
         
         if success:
-            logger.info(f"Alert processed successfully for {data.get('symbol')} in {processing_time}ms")
+            logger.info(f"✅ Alert sent successfully in {processing_time}ms")
             return jsonify({
                 "status": "success",
-                "message": "Trading alert processed and delivered",
-                "symbol": data.get('symbol'),
-                "action": data.get('action'),
+                "message": "Trading alert processed and delivered to Telegram",
+                "symbol": processed_data.get('symbol'),
+                "action": processed_data.get('action'),
                 "alert_id": alert_manager.alert_count,
                 "processing_time_ms": processing_time,
                 "timestamp": datetime.now().isoformat()
             }), 200
         else:
-            logger.error(f"Failed to send alert for {data.get('symbol')}")
+            logger.error(f"❌ Failed to send alert to Telegram")
             return jsonify({
-                "status": "error",
+                "status": "error", 
                 "message": "Alert processed but failed to send to Telegram",
                 "processing_time_ms": processing_time
             }), 500
             
     except ValueError as e:
-        # Validation errors
         processing_time = round((time.time() - start_time) * 1000, 2)
-        logger.warning(f"Validation error: {e}")
+        logger.error(f"❌ Validation error: {e}")
         return jsonify({
             "status": "error",
             "message": f"Data validation failed: {str(e)}",
+            "required_fields": ["symbol", "action"],
+            "valid_actions": ["buy", "sell", "entry", "exit", "close", "long", "short"],
             "processing_time_ms": processing_time
         }), 400
         
     except Exception as e:
-        # Unexpected errors
         processing_time = round((time.time() - start_time) * 1000, 2)
-        logger.error(f"Unexpected error in webhook: {e}")
+        logger.error(f"❌ Unexpected error: {e}")
+        import traceback
+        logger.error(f"🔍 Stack trace: {traceback.format_exc()}")
         return jsonify({
             "status": "error",
             "message": f"Internal server error: {str(e)}",
             "processing_time_ms": processing_time
         }), 500
+
+@app.route('/webhook/test', methods=['GET', 'POST'])
+def test_webhook_format():
+    """
+    Test endpoint untuk membantu debugging format data TradingView
+    """
+    if request.method == 'GET':
+        return jsonify({
+            "status": "test_endpoint",
+            "message": "Send POST request to test webhook format",
+            "example_payload": {
+                "symbol": "BTCUSDT",
+                "action": "buy",
+                "price": "50000",
+                "strategy": "Test_Strategy"
+            },
+            "content_types_supported": [
+                "application/json", 
+                "text/plain", 
+                "application/x-www-form-urlencoded"
+            ]
+        })
+    
+    # Handle POST request
+    result = {
+        "received_headers": dict(request.headers),
+        "content_type": request.content_type,
+        "method": request.method,
+        "parsed_data": None
+    }
+    
+    # Try different parsing methods
+    if request.content_type and 'application/json' in request.content_type:
+        result['parsed_data'] = request.get_json()
+        result['parse_method'] = 'application/json'
+    elif request.content_type and 'text/plain' in request.content_type:
+        raw_data = request.get_data(as_text=True)
+        result['raw_data'] = raw_data
+        try:
+            result['parsed_data'] = json.loads(raw_data)
+            result['parse_method'] = 'text/plain -> json'
+        except:
+            result['parse_method'] = 'text/plain (raw)'
+    else:
+        result['parsed_data'] = request.form.to_dict()
+        result['parse_method'] = 'form-data'
+    
+    return jsonify(result)
 
 @app.route('/test', methods=['GET'])
 def test_alert():
