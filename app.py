@@ -1,0 +1,640 @@
+#!/usr/bin/env python3
+"""
+TradingView to Telegram Webhook Alert System
+Professional Grade - Developed by Senior Trader & Engineer
+
+Features:
+- Real-time trading alerts from TradingView to Telegram
+"""
+
+from flask import Flask, request, jsonify
+import requests
+import os
+import logging
+from datetime import datetime
+import json
+import time
+import sys
+
+# =============================================
+# FIX UNICODE ENCODING FOR WINDOWS
+# =============================================
+
+# Fix untuk Windows encoding issues
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+# =============================================
+# CONFIGURATION SETUP
+# =============================================
+
+# Setup comprehensive logging dengan encoding fix
+class UnicodeSafeHandler(logging.StreamHandler):
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            stream = self.stream
+            # Encode ke UTF-8 dan replace characters yang problematic
+            msg = msg.encode('utf-8', 'replace').decode('utf-8')
+            stream.write(msg + self.terminator)
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
+# Setup logging configuration
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Create handler dengan Unicode support
+handler = UnicodeSafeHandler()
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+# Remove default handlers jika ada
+for h in logger.handlers[:]:
+    logger.removeHandler(h)
+logger.addHandler(handler)
+
+app = Flask(__name__)
+
+# Environment variables dengan fallback values - GUNAKAN DEFAULT YANG BERBEDA
+TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
+TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', 'YOUR_CHAT_ID_HERE')
+
+# Jika environment variables tidak ada, gunakan hardcoded values
+if TELEGRAM_BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
+    TELEGRAM_BOT_TOKEN = '7696273057:AAHQuPoHXTDgK8tfZM_XZFDQ2MnuOxbN3Qw'
+    
+if TELEGRAM_CHAT_ID == 'YOUR_CHAT_ID_HERE':
+    TELEGRAM_CHAT_ID = '1087807405'
+
+# =============================================
+# TRADING ALERT MANAGER CLASS
+# =============================================
+
+class TradingAlertManager:
+    """
+    Professional trading alert management system
+    Handle semua jenis alert dari TradingView dengan format professional
+    """
+    
+    def __init__(self):
+        self.alert_count = 0
+        self.last_alert_time = None
+        self.alert_history = []
+        
+    def validate_alert_data(self, data):
+        """
+        Validasi data alert dari TradingView
+        Memastikan data lengkap dan valid untuk trading decisions
+        """
+        logger.info("Validating alert data...")
+        
+        # Required fields untuk trading alert
+        required_fields = ['symbol', 'action']
+        
+        for field in required_fields:
+            if field not in data:
+                error_msg = f"Missing required field: {field}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+                
+        # Validate action type
+        valid_actions = ['buy', 'sell', 'entry', 'exit', 'close', 'long', 'short']
+        if data['action'].lower() not in valid_actions:
+            error_msg = f"Invalid action: {data['action']}. Valid actions: {valid_actions}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+            
+        logger.info("Alert data validation passed")
+        return True
+    
+    def determine_trading_signal(self, action):
+        """
+        Determine trading signal type dengan detail professional
+        """
+        action = action.lower()
+        
+        signal_map = {
+            'buy': {
+                'emoji': '🟢',
+                'signal_text': 'LONG ENTRY',
+                'sentiment': 'BULLISH',
+                'urgency': 'HIGH'
+            },
+            'long': {
+                'emoji': '🟢', 
+                'signal_text': 'LONG POSITION',
+                'sentiment': 'BULLISH',
+                'urgency': 'HIGH'
+            },
+            'sell': {
+                'emoji': '🔴',
+                'signal_text': 'SHORT ENTRY', 
+                'sentiment': 'BEARISH',
+                'urgency': 'HIGH'
+            },
+            'short': {
+                'emoji': '🔴',
+                'signal_text': 'SHORT POSITION',
+                'sentiment': 'BEARISH', 
+                'urgency': 'HIGH'
+            },
+            'exit': {
+                'emoji': '⚪',
+                'signal_text': 'POSITION EXIT',
+                'sentiment': 'NEUTRAL',
+                'urgency': 'MEDIUM'
+            },
+            'close': {
+                'emoji': '⚪',
+                'signal_text': 'POSITION CLOSE',
+                'sentiment': 'NEUTRAL',
+                'urgency': 'MEDIUM'
+            }
+        }
+        
+        return signal_map.get(action, {
+            'emoji': '⚪',
+            'signal_text': action.upper(),
+            'sentiment': 'NEUTRAL',
+            'urgency': 'LOW'
+        })
+    
+    def format_professional_alert(self, data):
+        """
+        Format alert message dengan style professional trader
+        Menggunakan emojis dan struktur yang mudah dibaca
+        """
+        # Extract data dengan safe defaults
+        symbol = data.get('symbol', 'UNKNOWN')
+        action = data.get('action', '')
+        price = data.get('price', 'N/A')
+        contracts = data.get('contracts', '1')
+        position_size = data.get('position_size', '0')
+        strategy_name = data.get('strategy', 'Unknown Strategy')
+        timeframe = data.get('timeframe', 'N/A')
+        custom_message = data.get('message', '')
+        
+        # Get trading signal details
+        signal_info = self.determine_trading_signal(action)
+        
+        # Timestamp untuk audit trail
+        current_time = datetime.now()
+        formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
+        timestamp_epoch = int(current_time.timestamp())
+        
+        # Update alert counters
+        self.alert_count += 1
+        self.last_alert_time = formatted_time
+        
+        # Store alert in history (max 100 alerts)
+        alert_record = {
+            'alert_id': self.alert_count,
+            'symbol': symbol,
+            'action': action,
+            'price': price,
+            'timestamp': formatted_time,
+            'epoch': timestamp_epoch
+        }
+        self.alert_history.append(alert_record)
+        if len(self.alert_history) > 100:
+            self.alert_history.pop(0)
+        
+        # =============================================
+        # PROFESSIONAL ALERT MESSAGE FORMATTING
+        # =============================================
+        
+        emoji = signal_info['emoji']
+        signal_text = signal_info['signal_text']
+        sentiment = signal_info['sentiment']
+        urgency = signal_info['urgency']
+        
+        # Header berdasarkan urgency
+        if urgency == 'HIGH':
+            header = f"🚨 {emoji} URGENT TRADING ALERT #{self.alert_count} {emoji} 🚨"
+        else:
+            header = f"{emoji} TRADING ALERT #{self.alert_count} {emoji}"
+        
+        # Format message dengan struktur professional
+        formatted_message = f"""
+{header}
+──────────────────────────────────
+
+SYMBOL: {symbol}
+SIGNAL: {signal_text}
+PRICE: {price}
+CONTRACTS: {contracts}
+POSITION SIZE: {position_size}
+
+TIMEFRAME: {timeframe}
+TIME: {formatted_time}
+STRATEGY: {strategy_name}
+
+SENTIMENT: {sentiment}
+URGENCY: {urgency}
+
+NOTES: {custom_message}
+
+#{sentiment} #{symbol.replace('/', '').replace('.', '')} #{action}
+        """
+        
+        return formatted_message.strip()
+    
+    def send_telegram_alert(self, message):
+        """
+        Send formatted alert ke Telegram dengan error handling
+        """
+        logger.info("Sending alert to Telegram...")
+        
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        
+        payload = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'text': message,
+            'parse_mode': 'HTML',
+            'disable_web_page_preview': True,
+            'disable_notification': False
+        }
+        
+        try:
+            start_time = time.time()
+            response = requests.post(url, json=payload, timeout=15)
+            processing_time = round((time.time() - start_time) * 1000, 2)
+            
+            if response.status_code == 200:
+                logger.info(f"Alert sent successfully in {processing_time}ms")
+                return True
+            else:
+                error_msg = f"Telegram API error: {response.status_code} - {response.text}"
+                logger.error(error_msg)
+                return False
+                
+        except requests.exceptions.Timeout:
+            logger.error("Telegram API timeout - alert not delivered")
+            return False
+        except requests.exceptions.ConnectionError:
+            logger.error("Connection error - check internet connection")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error sending to Telegram: {e}")
+            return False
+
+# =============================================
+# FLASK APPLICATION ROUTES
+# =============================================
+
+# Initialize trading alert manager
+alert_manager = TradingAlertManager()
+
+@app.route('/', methods=['GET'])
+def home():
+    """
+    Home endpoint dengan comprehensive system status
+    """
+    status_info = {
+        "status": "active",
+        "service": "Professional TradingView to Telegram Webhook",
+        "version": "2.0.0",
+        "developer": "Senior Trader & Engineer - 45+ Years Experience",
+        "alerts_processed": alert_manager.alert_count,
+        "last_alert_time": alert_manager.last_alert_time,
+        "uptime": "running",
+        "endpoints": {
+            "webhook": "POST /webhook - Main TradingView webhook",
+            "test_alert": "GET /test - Test alert functionality", 
+            "test_scalping": "GET /test/scalping - Test MACD scalping alerts",
+            "health": "GET /health - System health check",
+            "status": "GET /status - Detailed system status"
+        },
+        "supported_strategies": [
+            "MACD Scalping",
+            "Moving Average Cross", 
+            "RSI Strategy",
+            "Bollinger Bands",
+            "Custom Strategies"
+        ]
+    }
+    return jsonify(status_info)
+
+@app.route('/webhook', methods=['POST'])
+def tradingview_webhook():
+    """
+    Main webhook endpoint untuk menerima alert dari TradingView
+    """
+    start_time = time.time()
+    
+    try:
+        # Log request details untuk audit
+        client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
+        logger.info(f"Webhook request received from IP: {client_ip}")
+        
+        # Get JSON data dari TradingView
+        data = request.get_json()
+        
+        if not data:
+            logger.warning("Empty JSON data received")
+            return jsonify({
+                "status": "error",
+                "message": "No JSON data received",
+                "alert_id": None,
+                "processing_time_ms": 0
+            }), 400
+        
+        # Log raw data untuk debugging
+        logger.info(f"Raw alert data: {json.dumps(data, indent=2)}")
+        
+        # Validasi data alert
+        alert_manager.validate_alert_data(data)
+        
+        # Format professional alert message
+        alert_message = alert_manager.format_professional_alert(data)
+        
+        # Kirim ke Telegram
+        success = alert_manager.send_telegram_alert(alert_message)
+        
+        # Calculate processing time
+        processing_time = round((time.time() - start_time) * 1000, 2)
+        
+        if success:
+            logger.info(f"Alert processed successfully for {data.get('symbol')} in {processing_time}ms")
+            return jsonify({
+                "status": "success",
+                "message": "Trading alert processed and delivered",
+                "symbol": data.get('symbol'),
+                "action": data.get('action'),
+                "alert_id": alert_manager.alert_count,
+                "processing_time_ms": processing_time,
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        else:
+            logger.error(f"Failed to send alert for {data.get('symbol')}")
+            return jsonify({
+                "status": "error",
+                "message": "Alert processed but failed to send to Telegram",
+                "processing_time_ms": processing_time
+            }), 500
+            
+    except ValueError as e:
+        # Validation errors
+        processing_time = round((time.time() - start_time) * 1000, 2)
+        logger.warning(f"Validation error: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Data validation failed: {str(e)}",
+            "processing_time_ms": processing_time
+        }), 400
+        
+    except Exception as e:
+        # Unexpected errors
+        processing_time = round((time.time() - start_time) * 1000, 2)
+        logger.error(f"Unexpected error in webhook: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Internal server error: {str(e)}",
+            "processing_time_ms": processing_time
+        }), 500
+
+@app.route('/test', methods=['GET'])
+def test_alert():
+    """
+    Test endpoint untuk verify system functionality
+    """
+    logger.info("Test alert requested")
+    
+    test_data = {
+        "symbol": "BBCA.JK",
+        "action": "buy",
+        "price": "8500",
+        "contracts": "500",
+        "position_size": "500",
+        "strategy": "RSI_Oversold_Strategy",
+        "timeframe": "1H",
+        "message": "System Test - Trading alert system is functioning normally. RSI oversold condition detected."
+    }
+    
+    try:
+        # Validate test data
+        alert_manager.validate_alert_data(test_data)
+        
+        # Format and send test alert
+        alert_message = alert_manager.format_professional_alert(test_data)
+        success = alert_manager.send_telegram_alert(alert_message)
+        
+        if success:
+            logger.info("Test alert sent successfully")
+            return jsonify({
+                "status": "success",
+                "message": "Test alert sent successfully",
+                "alert_data": test_data,
+                "alert_id": alert_manager.alert_count
+            })
+        else:
+            logger.error("Failed to send test alert")
+            return jsonify({
+                "status": "error",
+                "message": "Failed to send test alert to Telegram"
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Test alert failed: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Test failed: {str(e)}"
+        }), 500
+
+@app.route('/test/scalping', methods=['GET'])
+def test_scalping_alert():
+    """
+    Test endpoint khusus untuk MACD Scalping strategy
+    """
+    logger.info("Testing MACD Scalping alerts")
+    
+    test_scenarios = [
+        {
+            "symbol": "DEWA.JK",
+            "action": "buy",
+            "contracts": "1000",
+            "position_size": "1000",
+            "price": "258",
+            "strategy": "Ryan_MACD_Scalping",
+            "timeframe": "5",
+            "message": "MACD Bullish Crossover detected. Fast EMA crosses above Slow EMA. Entry signal confirmed."
+        },
+        {
+            "symbol": "DEWA.JK",
+            "action": "sell", 
+            "contracts": "1000",
+            "position_size": "0",
+            "price": "262",
+            "strategy": "Ryan_MACD_Scalping",
+            "timeframe": "5",
+            "message": "Take Profit target reached. MACD showing overbought conditions. Exit position."
+        }
+    ]
+    
+    results = []
+    for i, test_data in enumerate(test_scenarios):
+        try:
+            alert_manager.validate_alert_data(test_data)
+            alert_message = alert_manager.format_professional_alert(test_data)
+            success = alert_manager.send_telegram_alert(alert_message)
+            
+            results.append({
+                "scenario": f"{i+1}. {test_data['action'].upper()} {test_data['symbol']}",
+                "status": "success" if success else "failed",
+                "symbol": test_data['symbol'],
+                "action": test_data['action']
+            })
+            
+            # Small delay antara test alerts
+            time.sleep(1)
+            
+        except Exception as e:
+            results.append({
+                "scenario": f"{i+1}. {test_data['action'].upper()} {test_data['symbol']}",
+                "status": "error",
+                "error": str(e)
+            })
+    
+    logger.info(f"MACD Scalping test completed: {results}")
+    
+    return jsonify({
+        "status": "test_completed",
+        "strategy": "Ryan_MACD_Scalping",
+        "results": results,
+        "total_scenarios": len(test_scenarios),
+        "successful": len([r for r in results if r['status'] == 'success'])
+    })
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """
+    Health check endpoint untuk monitoring dan uptime checks
+    """
+    bot_configured = TELEGRAM_BOT_TOKEN not in ['YOUR_BOT_TOKEN_HERE', '']
+    chat_configured = TELEGRAM_CHAT_ID not in ['YOUR_CHAT_ID_HERE', '']
+    
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "tradingview-telegram-webhook",
+        "version": "2.0.0",
+        "alerts_processed": alert_manager.alert_count,
+        "last_alert": alert_manager.last_alert_time,
+        "telegram_configured": bot_configured and chat_configured,
+        "environment": "production"
+    }
+    return jsonify(health_status)
+
+@app.route('/status', methods=['GET'])
+def detailed_status():
+    """
+    Detailed system status dengan alert history
+    """
+    # Recent alerts (last 10)
+    recent_alerts = alert_manager.alert_history[-10:] if alert_manager.alert_history else []
+    
+    status_details = {
+        "system": {
+            "status": "operational",
+            "uptime": "running",
+            "flask_environment": os.environ.get('FLASK_ENV', 'production'),
+            "python_version": os.sys.version
+        },
+        "alerts": {
+            "total_processed": alert_manager.alert_count,
+            "last_alert_time": alert_manager.last_alert_time,
+            "recent_alerts": recent_alerts
+        },
+        "telegram": {
+            "bot_configured": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_TOKEN != '7696273057:AAHQuPoHXTDgK8tfZM_XZFDQ2MnuOxbN3Qw'),
+            "chat_configured": bool(TELEGRAM_CHAT_ID and TELEGRAM_CHAT_ID != '1087807405')
+        },
+        "endpoints": {
+            "webhook": "active",
+            "health": "active", 
+            "test": "active",
+            "status": "active"
+        }
+    }
+    return jsonify(status_details)
+
+# =============================================
+# ERROR HANDLERS
+# =============================================
+
+@app.errorhandler(404)
+def not_found(error):
+    logger.warning(f"404 Error: {request.url}")
+    return jsonify({
+        "status": "error",
+        "message": "Endpoint not found. Check / for available endpoints.",
+        "available_endpoints": [
+            "GET /",
+            "POST /webhook", 
+            "GET /test",
+            "GET /test/scalping",
+            "GET /health",
+            "GET /status"
+        ]
+    }), 404
+
+@app.errorhandler(405)
+def method_not_allowed(error):
+    logger.warning(f"405 Error: {request.method} {request.url}")
+    return jsonify({
+        "status": "error",
+        "message": f"Method {request.method} not allowed for this endpoint",
+        "allowed_methods": error.description.get('allowed_methods', [])
+    }), 405
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    logger.error(f"500 Internal Server Error: {error}")
+    return jsonify({
+        "status": "error",
+        "message": "Internal server error. Check logs for details."
+    }), 500
+
+# =============================================
+# APPLICATION STARTUP - WITHOUT EMOJIS FOR WINDOWS
+# =============================================
+
+if __name__ == '__main__':
+    # Startup message tanpa emojis untuk Windows compatibility
+    logger.info("Starting Professional TradingView to Telegram Webhook Service")
+    logger.info("Developed by Senior Trader & Engineer - 45+ Years Experience")
+    logger.info("Configuration Check:")
+    
+    # Fix logic comparison - cek apakah menggunakan hardcoded values atau environment variables
+    bot_configured = TELEGRAM_BOT_TOKEN not in ['YOUR_BOT_TOKEN_HERE', '']
+    chat_configured = TELEGRAM_CHAT_ID not in ['YOUR_CHAT_ID_HERE', '']
+    
+    logger.info(f"   - Telegram Bot: {'✅ Configured' if bot_configured else '❌ Not Configured'}")
+    logger.info(f"   - Telegram Chat: {'✅ Configured' if chat_configured else '❌ Not Configured'}")
+    
+    # Validasi configuration
+    if not bot_configured or not chat_configured:
+        logger.error("❌ Telegram configuration missing! Please set environment variables.")
+        logger.info("   Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables")
+    else:
+        logger.info("✅ Telegram configuration verified")
+        
+    logger.info("🚀 Ready to receive trading alerts!")
+    
+    # Get port from environment variable (for Render/Heroku)
+    port = int(os.environ.get('PORT', 5000))
+    
+    # Run application
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=False
+    )
