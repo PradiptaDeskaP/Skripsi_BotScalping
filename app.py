@@ -334,18 +334,25 @@ def tradingview_webhook():
         # Log request details untuk audit
         client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
         logger.info(f"Webhook request received from IP: {client_ip}")
+        logger.info(f"Request method: {request.method}")
+        logger.info(f"Request headers: {dict(request.headers)}")
         
         # Get JSON data dari TradingView
         data = request.get_json()
         
         if not data:
-            logger.warning("Empty JSON data received")
-            return jsonify({
-                "status": "error",
-                "message": "No JSON data received",
-                "alert_id": None,
-                "processing_time_ms": 0
-            }), 400
+            # Coba get data sebagai form data juga
+            data = request.form.to_dict()
+            if data:
+                logger.info("Received data as form data")
+            else:
+                logger.warning("Empty JSON data received")
+                return jsonify({
+                    "status": "error",
+                    "message": "No JSON data received",
+                    "alert_id": None,
+                    "processing_time_ms": 0
+                }), 400
         
         # Log raw data untuk debugging
         logger.info(f"Raw alert data: {json.dumps(data, indent=2)}")
