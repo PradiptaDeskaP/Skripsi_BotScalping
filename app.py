@@ -5,6 +5,7 @@ Professional Grade - Developed by Senior Trader & Engineer
 
 Features:
 - Real-time trading alerts from TradingView to Telegram
+- Enhanced debugging and error handling for production use
 """
 
 from flask import Flask, request, jsonify
@@ -63,16 +64,27 @@ logger.addHandler(handler)
 
 app = Flask(__name__)
 
-# Environment variables dengan fallback values - GUNAKAN DEFAULT YANG BERBEDA
-TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
-TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', 'YOUR_CHAT_ID_HERE')
+# =============================================
+# CRITICAL CONFIGURATION - MUST BE SET VIA ENVIRONMENT VARIABLES
+# =============================================
 
-# Jika environment variables tidak ada, gunakan hardcoded values
-if TELEGRAM_BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
-    TELEGRAM_BOT_TOKEN = '7696273057:AAHQuPoHXTDgK8tfZM_XZFDQ2MnuOxbN3Qw'
-    
-if TELEGRAM_CHAT_ID == 'YOUR_CHAT_ID_HERE':
-    TELEGRAM_CHAT_ID = '1087807405'
+# Define environment variable names
+TELEGRAM_BOT_TOKEN_ENV = 'TELEGRAM_BOT_TOKEN'
+TELEGRAM_CHAT_ID_ENV = 'TELEGRAM_CHAT_ID'
+
+# Get environment variables
+TELEGRAM_BOT_TOKEN = os.environ.get(TELEGRAM_BOT_TOKEN_ENV)
+TELEGRAM_CHAT_ID = os.environ.get(TELEGRAM_CHAT_ID_ENV)
+
+# Validate critical configuration at startup
+if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+    logger.critical(f"❌ CRITICAL ERROR: Environment variables '{TELEGRAM_BOT_TOKEN_ENV}' and/or '{TELEGRAM_CHAT_ID_ENV}' are NOT set!")
+    logger.critical("Please set them in your hosting platform's environment settings.")
+    logger.critical("Application will now exit to prevent insecure operation.")
+    sys.exit(1)  # Exit the application if config is missing
+
+logger.info(f"✅ Telegram Bot Token configured (first 6 chars: {TELEGRAM_BOT_TOKEN[:6]}...)")
+logger.info(f"✅ Telegram Chat ID configured: {TELEGRAM_CHAT_ID}")
 
 # =============================================
 # TRADING ALERT MANAGER CLASS
@@ -83,44 +95,45 @@ class TradingAlertManager:
     Professional trading alert management system
     Handle semua jenis alert dari TradingView dengan format professional
     """
-    
+
     def __init__(self):
         self.alert_count = 0
         self.last_alert_time = None
         self.alert_history = []
-        
+
     def validate_alert_data(self, data):
         """
         Validasi data alert dari TradingView
         Memastikan data lengkap dan valid untuk trading decisions
         """
         logger.info("Validating alert data...")
-        
+        logger.debug(f"Data to validate: {data}")  # Log raw data for debugging
+
         # Required fields untuk trading alert
         required_fields = ['symbol', 'action']
-        
+
         for field in required_fields:
             if field not in data:
                 error_msg = f"Missing required field: {field}"
                 logger.error(error_msg)
                 raise ValueError(error_msg)
-                
+
         # Validate action type
         valid_actions = ['buy', 'sell', 'entry', 'exit', 'close', 'long', 'short']
         if data['action'].lower() not in valid_actions:
             error_msg = f"Invalid action: {data['action']}. Valid actions: {valid_actions}"
             logger.error(error_msg)
             raise ValueError(error_msg)
-            
+
         logger.info("Alert data validation passed")
         return True
-    
+
     def determine_trading_signal(self, action):
         """
         Determine trading signal type dengan detail professional
         """
         action = action.lower()
-        
+
         signal_map = {
             'buy': {
                 'emoji': '🟢',
@@ -129,21 +142,21 @@ class TradingAlertManager:
                 'urgency': 'HIGH'
             },
             'long': {
-                'emoji': '🟢', 
+                'emoji': '🟢',
                 'signal_text': 'LONG POSITION',
                 'sentiment': 'BULLISH',
                 'urgency': 'HIGH'
             },
             'sell': {
                 'emoji': '🔴',
-                'signal_text': 'SHORT ENTRY', 
+                'signal_text': 'SHORT ENTRY',
                 'sentiment': 'BEARISH',
                 'urgency': 'HIGH'
             },
             'short': {
                 'emoji': '🔴',
                 'signal_text': 'SHORT POSITION',
-                'sentiment': 'BEARISH', 
+                'sentiment': 'BEARISH',
                 'urgency': 'HIGH'
             },
             'exit': {
@@ -159,14 +172,14 @@ class TradingAlertManager:
                 'urgency': 'MEDIUM'
             }
         }
-        
+
         return signal_map.get(action, {
             'emoji': '⚪',
             'signal_text': action.upper(),
             'sentiment': 'NEUTRAL',
             'urgency': 'LOW'
         })
-    
+
     def format_professional_alert(self, data):
         """
         Format alert message dengan style professional trader
@@ -181,19 +194,19 @@ class TradingAlertManager:
         strategy_name = data.get('strategy', 'Unknown Strategy')
         timeframe = data.get('timeframe', 'N/A')
         custom_message = data.get('message', '')
-        
+
         # Get trading signal details
         signal_info = self.determine_trading_signal(action)
-        
+
         # Timestamp untuk audit trail
         current_time = datetime.now()
         formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
         timestamp_epoch = int(current_time.timestamp())
-        
+
         # Update alert counters
         self.alert_count += 1
         self.last_alert_time = formatted_time
-        
+
         # Store alert in history (max 100 alerts)
         alert_record = {
             'alert_id': self.alert_count,
@@ -206,22 +219,22 @@ class TradingAlertManager:
         self.alert_history.append(alert_record)
         if len(self.alert_history) > 100:
             self.alert_history.pop(0)
-        
+
         # =============================================
         # PROFESSIONAL ALERT MESSAGE FORMATTING
         # =============================================
-        
+
         emoji = signal_info['emoji']
         signal_text = signal_info['signal_text']
         sentiment = signal_info['sentiment']
         urgency = signal_info['urgency']
-        
+
         # Header berdasarkan urgency
         if urgency == 'HIGH':
             header = f"🚨 {emoji} URGENT TRADING ALERT #{self.alert_count} {emoji} 🚨"
         else:
             header = f"{emoji} TRADING ALERT #{self.alert_count} {emoji}"
-        
+
         # Format message dengan struktur professional
         formatted_message = f"""
 {header}
@@ -244,17 +257,17 @@ NOTES: {custom_message}
 
 #{sentiment} #{symbol.replace('/', '').replace('.', '')} #{action}
         """
-        
+
         return formatted_message.strip()
-    
+
     def send_telegram_alert(self, message):
         """
         Send formatted alert ke Telegram dengan error handling
         """
         logger.info("Sending alert to Telegram...")
-        
+
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        
+
         payload = {
             'chat_id': TELEGRAM_CHAT_ID,
             'text': message,
@@ -262,28 +275,28 @@ NOTES: {custom_message}
             'disable_web_page_preview': True,
             'disable_notification': False
         }
-        
+
         try:
             start_time = time.time()
             response = requests.post(url, json=payload, timeout=15)
             processing_time = round((time.time() - start_time) * 1000, 2)
-            
+
             if response.status_code == 200:
-                logger.info(f"Alert sent successfully in {processing_time}ms")
+                logger.info(f"✅ Alert sent successfully in {processing_time}ms")
                 return True
             else:
                 error_msg = f"Telegram API error: {response.status_code} - {response.text}"
                 logger.error(error_msg)
                 return False
-                
+
         except requests.exceptions.Timeout:
-            logger.error("Telegram API timeout - alert not delivered")
+            logger.error("❌ Telegram API timeout - alert not delivered")
             return False
         except requests.exceptions.ConnectionError:
-            logger.error("Connection error - check internet connection")
+            logger.error("❌ Connection error - check internet connection")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error sending to Telegram: {e}")
+            logger.error(f"❌ Unexpected error sending to Telegram: {e}")
             return False
 
 # =============================================
@@ -301,21 +314,21 @@ def home():
     status_info = {
         "status": "active",
         "service": "Professional TradingView to Telegram Webhook",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "developer": "Senior Trader & Engineer - 45+ Years Experience",
         "alerts_processed": alert_manager.alert_count,
         "last_alert_time": alert_manager.last_alert_time,
         "uptime": "running",
         "endpoints": {
             "webhook": "POST /webhook - Main TradingView webhook",
-            "test_alert": "GET /test - Test alert functionality", 
+            "test_alert": "GET /test - Test alert functionality",
             "test_scalping": "GET /test/scalping - Test MACD scalping alerts",
             "health": "GET /health - System health check",
             "status": "GET /status - Detailed system status"
         },
         "supported_strategies": [
             "MACD Scalping",
-            "Moving Average Cross", 
+            "Moving Average Cross",
             "RSI Strategy",
             "Bollinger Bands",
             "Custom Strategies"
@@ -329,7 +342,7 @@ def tradingview_webhook():
     Main webhook endpoint untuk menerima alert dari TradingView
     """
     start_time = time.time()
-    
+
     try:
         # Log request details untuk audit
         client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
@@ -337,90 +350,116 @@ def tradingview_webhook():
         logger.info(f"🔹 Method: {request.method}")
         logger.info(f"🔹 Content-Type: {request.content_type}")
         logger.info(f"🔹 Headers: {dict(request.headers)}")
-        
+
         data = None
-        
-        # Handle different content types
+
+        # Handle different content types with enhanced debugging
+        logger.info("Attempting to parse incoming data...")
+
         if request.content_type and 'application/json' in request.content_type:
             # JSON content type
-            data = request.get_json()
-            logger.info("✅ Data received as application/json")
-            
+            try:
+                data = request.get_json()
+                logger.info("✅ Data received as application/json")
+                logger.debug(f"Parsed JSON data: {json.dumps(data, indent=2)}")
+            except Exception as e:
+                logger.error(f"❌ Failed to parse application/json: {e}")
+                data = None
+
         elif request.content_type and 'text/plain' in request.content_type:
             # TradingView usually sends text/plain with JSON inside
             raw_data = request.get_data(as_text=True)
-            logger.info(f"📝 Raw text data: {raw_data}")
-            
+            logger.info(f"📝 Raw text data received: {raw_data}")
+
             if raw_data:
                 try:
                     data = json.loads(raw_data)
                     logger.info("✅ Successfully parsed text/plain as JSON")
-                except json.JSONDecodeError:
-                    # Jika bukan JSON, coba parse sebagai form data
+                    logger.debug(f"Parsed JSON from text/plain: {json.dumps(data, indent=2)}")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"⚠️ Could not parse text/plain as JSON: {e}")
+                    # Try to parse as form data as a fallback
                     try:
                         data = request.form.to_dict()
-                        logger.info("✅ Parsed as form data")
-                    except:
+                        logger.info("✅ Parsed as form data from text/plain")
+                        logger.debug(f"Parsed form data: {data}")
+                    except Exception as e2:
+                        logger.warning(f"⚠️ Could not parse as form data either: {e2}")
                         data = {'raw_message': raw_data}
                         logger.info("✅ Stored as raw message")
-        
+                except Exception as e:
+                    logger.error(f"❌ Unexpected error parsing text/plain: {e}")
+                    data = None
+
         elif request.form:
             # Form data
             data = request.form.to_dict()
             logger.info("✅ Data received as form-data")
-            
+            logger.debug(f"Parsed form data: {data}")
+
         else:
-            # Try to get raw body and parse as JSON
+            # Try to get raw body and parse as JSON as last resort
             raw_body = request.get_data(as_text=True)
             logger.info(f"🔍 Raw request body: {raw_body}")
-            
+
             if raw_body:
                 try:
                     data = json.loads(raw_body)
                     logger.info("✅ Successfully parsed raw body as JSON")
-                except:
+                    logger.debug(f"Parsed JSON from raw body: {json.dumps(data, indent=2)}")
+                except json.JSONDecodeError:
+                    logger.warning("⚠️ Raw body is not valid JSON, storing as raw message")
                     data = {'raw_message': raw_body}
                     logger.info("✅ Stored raw body as message")
-        
+                except Exception as e:
+                    logger.error(f"❌ Unexpected error parsing raw body: {e}")
+                    data = None
+            else:
+                logger.warning("⚠️ Request body is empty")
+
         # Jika masih tidak ada data
         if not data:
-            logger.error("❌ NO DATA RECEIVED")
+            logger.error("❌ NO DATA RECEIVED OR PARSED")
             return jsonify({
                 "status": "error",
-                "message": "No data received",
+                "message": "No data received or could be parsed",
                 "content_type": request.content_type,
-                "supported_types": ["application/json", "text/plain", "form-data"]
+                "supported_types": ["application/json", "text/plain", "form-data"],
+                "suggestion": "Check your TradingView alert message format. It should be a valid JSON object."
             }), 400
-        
-        logger.info(f"📊 Parsed data: {json.dumps(data, indent=2)}")
-        
+
+        logger.info(f"📊 Final parsed data: {json.dumps(data, indent=2)}")
+
         # Handle case where data might be nested or have different structure
         processed_data = data
-        
+
         # Jika data adalah string dalam 'raw_message', coba parse ulang
         if isinstance(processed_data, dict) and 'raw_message' in processed_data:
             try:
                 raw_msg = processed_data['raw_message']
+                logger.info(f"🔄 Attempting to re-parse raw_message: {raw_msg}")
                 if raw_msg.startswith('{') and raw_msg.endswith('}'):
                     processed_data = json.loads(raw_msg)
-                    logger.info("✅ Parsed raw_message as JSON")
-            except:
-                pass
-        
+                    logger.info("✅ Successfully reparsed raw_message as JSON")
+                    logger.debug(f"Reparsed data: {json.dumps(processed_data, indent=2)}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to re-parse raw_message: {e}")
+                # Keep the original data
+
         # Validasi data alert
         alert_manager.validate_alert_data(processed_data)
-        
+
         # Format professional alert message
         alert_message = alert_manager.format_professional_alert(processed_data)
         logger.info(f"📋 Formatted alert message ready")
-        
+
         # Kirim ke Telegram
         logger.info("📤 Sending to Telegram...")
         success = alert_manager.send_telegram_alert(alert_message)
-        
+
         # Calculate processing time
         processing_time = round((time.time() - start_time) * 1000, 2)
-        
+
         if success:
             logger.info(f"✅ Alert sent successfully in {processing_time}ms")
             return jsonify({
@@ -435,11 +474,11 @@ def tradingview_webhook():
         else:
             logger.error(f"❌ Failed to send alert to Telegram")
             return jsonify({
-                "status": "error", 
+                "status": "error",
                 "message": "Alert processed but failed to send to Telegram",
                 "processing_time_ms": processing_time
             }), 500
-            
+
     except ValueError as e:
         processing_time = round((time.time() - start_time) * 1000, 2)
         logger.error(f"❌ Validation error: {e}")
@@ -450,7 +489,7 @@ def tradingview_webhook():
             "valid_actions": ["buy", "sell", "entry", "exit", "close", "long", "short"],
             "processing_time_ms": processing_time
         }), 400
-        
+
     except Exception as e:
         processing_time = round((time.time() - start_time) * 1000, 2)
         logger.error(f"❌ Unexpected error: {e}")
@@ -478,36 +517,45 @@ def test_webhook_format():
                 "strategy": "Test_Strategy"
             },
             "content_types_supported": [
-                "application/json", 
-                "text/plain", 
+                "application/json",
+                "text/plain",
                 "application/x-www-form-urlencoded"
-            ]
+            ],
+            "instructions": "Use this endpoint to see how your data is parsed by the server."
         })
-    
+
     # Handle POST request
     result = {
         "received_headers": dict(request.headers),
         "content_type": request.content_type,
         "method": request.method,
-        "parsed_data": None
+        "parsed_data": None,
+        "raw_data": None,
+        "parse_method": "unknown"
     }
-    
+
     # Try different parsing methods
     if request.content_type and 'application/json' in request.content_type:
-        result['parsed_data'] = request.get_json()
-        result['parse_method'] = 'application/json'
+        try:
+            result['parsed_data'] = request.get_json()
+            result['parse_method'] = 'application/json'
+        except Exception as e:
+            result['parse_method'] = f'application/json (failed: {e})'
     elif request.content_type and 'text/plain' in request.content_type:
         raw_data = request.get_data(as_text=True)
         result['raw_data'] = raw_data
         try:
             result['parsed_data'] = json.loads(raw_data)
             result['parse_method'] = 'text/plain -> json'
-        except:
-            result['parse_method'] = 'text/plain (raw)'
+        except Exception as e:
+            result['parse_method'] = f'text/plain (failed to parse: {e})'
     else:
-        result['parsed_data'] = request.form.to_dict()
-        result['parse_method'] = 'form-data'
-    
+        try:
+            result['parsed_data'] = request.form.to_dict()
+            result['parse_method'] = 'form-data'
+        except Exception as e:
+            result['parse_method'] = f'form-data (failed: {e})'
+
     return jsonify(result)
 
 @app.route('/test', methods=['GET'])
@@ -516,7 +564,7 @@ def test_alert():
     Test endpoint untuk verify system functionality
     """
     logger.info("Test alert requested")
-    
+
     test_data = {
         "symbol": "BBCA.JK",
         "action": "buy",
@@ -527,15 +575,15 @@ def test_alert():
         "timeframe": "1H",
         "message": "System Test - Trading alert system is functioning normally. RSI oversold condition detected."
     }
-    
+
     try:
         # Validate test data
         alert_manager.validate_alert_data(test_data)
-        
+
         # Format and send test alert
         alert_message = alert_manager.format_professional_alert(test_data)
         success = alert_manager.send_telegram_alert(alert_message)
-        
+
         if success:
             logger.info("Test alert sent successfully")
             return jsonify({
@@ -550,7 +598,7 @@ def test_alert():
                 "status": "error",
                 "message": "Failed to send test alert to Telegram"
             }), 500
-            
+
     except Exception as e:
         logger.error(f"Test alert failed: {e}")
         return jsonify({
@@ -564,7 +612,7 @@ def test_scalping_alert():
     Test endpoint khusus untuk MACD Scalping strategy
     """
     logger.info("Testing MACD Scalping alerts")
-    
+
     test_scenarios = [
         {
             "symbol": "DEWA.JK",
@@ -578,7 +626,7 @@ def test_scalping_alert():
         },
         {
             "symbol": "DEWA.JK",
-            "action": "sell", 
+            "action": "sell",
             "contracts": "1000",
             "position_size": "0",
             "price": "262",
@@ -587,33 +635,33 @@ def test_scalping_alert():
             "message": "Take Profit target reached. MACD showing overbought conditions. Exit position."
         }
     ]
-    
+
     results = []
     for i, test_data in enumerate(test_scenarios):
         try:
             alert_manager.validate_alert_data(test_data)
             alert_message = alert_manager.format_professional_alert(test_data)
             success = alert_manager.send_telegram_alert(alert_message)
-            
+
             results.append({
                 "scenario": f"{i+1}. {test_data['action'].upper()} {test_data['symbol']}",
                 "status": "success" if success else "failed",
                 "symbol": test_data['symbol'],
                 "action": test_data['action']
             })
-            
+
             # Small delay antara test alerts
             time.sleep(1)
-            
+
         except Exception as e:
             results.append({
                 "scenario": f"{i+1}. {test_data['action'].upper()} {test_data['symbol']}",
                 "status": "error",
                 "error": str(e)
             })
-    
+
     logger.info(f"MACD Scalping test completed: {results}")
-    
+
     return jsonify({
         "status": "test_completed",
         "strategy": "Ryan_MACD_Scalping",
@@ -627,14 +675,14 @@ def health_check():
     """
     Health check endpoint untuk monitoring dan uptime checks
     """
-    bot_configured = TELEGRAM_BOT_TOKEN not in ['YOUR_BOT_TOKEN_HERE', '']
-    chat_configured = TELEGRAM_CHAT_ID not in ['YOUR_CHAT_ID_HERE', '']
-    
+    bot_configured = bool(TELEGRAM_BOT_TOKEN)
+    chat_configured = bool(TELEGRAM_CHAT_ID)
+
     health_status = {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "service": "tradingview-telegram-webhook",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "alerts_processed": alert_manager.alert_count,
         "last_alert": alert_manager.last_alert_time,
         "telegram_configured": bot_configured and chat_configured,
@@ -649,7 +697,7 @@ def detailed_status():
     """
     # Recent alerts (last 10)
     recent_alerts = alert_manager.alert_history[-10:] if alert_manager.alert_history else []
-    
+
     status_details = {
         "system": {
             "status": "operational",
@@ -663,12 +711,12 @@ def detailed_status():
             "recent_alerts": recent_alerts
         },
         "telegram": {
-            "bot_configured": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_TOKEN != '7696273057:AAHQuPoHXTDgK8tfZM_XZFDQ2MnuOxbN3Qw'),
-            "chat_configured": bool(TELEGRAM_CHAT_ID and TELEGRAM_CHAT_ID != '1087807405')
+            "bot_configured": bot_configured,
+            "chat_configured": chat_configured
         },
         "endpoints": {
             "webhook": "active",
-            "health": "active", 
+            "health": "active",
             "test": "active",
             "status": "active"
         }
@@ -686,49 +734,35 @@ def not_found(error):
         "message": "Endpoint not found"
     }), 404
 
-# REMOVE THE PROBLEMATIC 405 HANDLER TEMPORARILY
-# @app.errorhandler(405)
-# def method_not_allowed(error):
-#     return jsonify({
-#         "status": "error", 
-#         "message": "Method not allowed"
-#     }), 405
-
 @app.errorhandler(500)
 def internal_server_error(error):
     return jsonify({
         "status": "error",
         "message": "Internal server error"
     }), 500
+
 # =============================================
-# APPLICATION STARTUP - WITHOUT EMOJIS FOR WINDOWS
+# APPLICATION STARTUP
 # =============================================
 
 if __name__ == '__main__':
-    # Startup message tanpa emojis untuk Windows compatibility
+    # Startup message
     logger.info("Starting Professional TradingView to Telegram Webhook Service")
     logger.info("Developed by Senior Trader & Engineer - 45+ Years Experience")
     logger.info("Configuration Check:")
-    
-    # Fix logic comparison - cek apakah menggunakan hardcoded values atau environment variables
-    bot_configured = TELEGRAM_BOT_TOKEN not in ['YOUR_BOT_TOKEN_HERE', '']
-    chat_configured = TELEGRAM_CHAT_ID not in ['YOUR_CHAT_ID_HERE', '']
-    
-    logger.info(f"   - Telegram Bot: {'✅ Configured' if bot_configured else '❌ Not Configured'}")
-    logger.info(f"   - Telegram Chat: {'✅ Configured' if chat_configured else '❌ Not Configured'}")
-    
-    # Validasi configuration
-    if not bot_configured or not chat_configured:
-        logger.error("❌ Telegram configuration missing! Please set environment variables.")
-        logger.info("   Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables")
-    else:
-        logger.info("✅ Telegram configuration verified")
-        
+
+    # Verify configuration
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.critical("❌ CRITICAL ERROR: Telegram configuration is missing! Application cannot start.")
+        sys.exit(1)
+
+    logger.info("✅ Telegram configuration verified")
+
     logger.info("🚀 Ready to receive trading alerts!")
-    
+
     # Get port from environment variable (for Render/Heroku)
     port = int(os.environ.get('PORT', 5000))
-    
+
     # Run application
     app.run(
         host='0.0.0.0',
