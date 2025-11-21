@@ -592,7 +592,7 @@ def method_not_allowed(error):
     return jsonify({
         "status": "error",
         "message": f"Method {request.method} not allowed for this endpoint",
-        "allowed_methods": error.description.get('allowed_methods', [])
+        "allowed_methods": ["GET", "POST"]  # FIX: Hardcode allowed methods
     }), 405
 
 @app.errorhandler(500)
@@ -602,7 +602,6 @@ def internal_server_error(error):
         "status": "error",
         "message": "Internal server error. Check logs for details."
     }), 500
-
 # =============================================
 # APPLICATION STARTUP - WITHOUT EMOJIS FOR WINDOWS
 # =============================================
